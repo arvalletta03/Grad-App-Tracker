@@ -5,7 +5,7 @@ const GradSchoolTracker = () => {
   const [applications, setApplications] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [view, setView] = useState('list'); // 'list', 'calendar', or 'sheet'
+  const [view, setView] = useState('list');
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // Inspirational messages
@@ -25,7 +25,19 @@ const GradSchoolTracker = () => {
     const savedData = localStorage.getItem('gradSchoolData');
     if (savedData) {
       try {
-        setApplications(JSON.parse(savedData));
+        const parsedData = JSON.parse(savedData);
+        // Migrate old data format if necessary
+        const migratedData = parsedData.map(app => ({
+          ...app,
+          overallDueDate: app.overallDueDate || app.dueDate,
+          essayRequirements: app.essayRequirements || [],
+          lettersOfRec: app.lettersOfRec || [
+            { name: '', status: 'pending' },
+            { name: '', status: 'pending' },
+            { name: '', status: 'pending' }
+          ]
+        }));
+        setApplications(migratedData);
       } catch (error) {
         console.error('Error loading saved data:', error);
       }
@@ -34,7 +46,7 @@ const GradSchoolTracker = () => {
 
   // Save data whenever applications change
   useEffect(() => {
-    if (applications.length > 0 || localStorage.getItem('gradSchoolData')) {
+    if (applications.length > 0) {
       localStorage.setItem('gradSchoolData', JSON.stringify(applications));
     }
   }, [applications]);
@@ -70,7 +82,10 @@ const GradSchoolTracker = () => {
   };
 
   const handleSubmit = () => {
-    if (!formData.university || !formData.program || !formData.overallDueDate) return;
+    if (!formData.university || !formData.program || !formData.overallDueDate) {
+      alert('Please fill in all required fields (University, Program, and Overall Due Date)');
+      return;
+    }
     
     const newApplication = {
       id: editingId || Date.now(),
@@ -87,13 +102,29 @@ const GradSchoolTracker = () => {
   };
 
   const handleEdit = (application) => {
-    setFormData(application);
+    // Ensure the application has the right structure
+    const editData = {
+      ...application,
+      essayRequirements: application.essayRequirements?.length > 0 
+        ? application.essayRequirements 
+        : [{ title: '', dueDate: '', status: 'pending' }],
+      lettersOfRec: application.lettersOfRec?.length === 3 
+        ? application.lettersOfRec 
+        : [
+            { name: '', status: 'pending' },
+            { name: '', status: 'pending' },
+            { name: '', status: 'pending' }
+          ]
+    };
+    setFormData(editData);
     setEditingId(application.id);
     setShowAddForm(true);
   };
 
   const handleDelete = (id) => {
-    setApplications(applications.filter(app => app.id !== id));
+    if (confirm('Are you sure you want to delete this application?')) {
+      setApplications(applications.filter(app => app.id !== id));
+    }
   };
 
   const updateLetterStatus = (appId, letterIndex, status) => {
@@ -123,6 +154,8 @@ const GradSchoolTracker = () => {
   };
 
   const getReminders = (dueDate) => {
+    if (!dueDate) return [];
+    
     const due = new Date(dueDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -149,7 +182,7 @@ const GradSchoolTracker = () => {
       case 'high': return 'border-pink-300 bg-pink-50';
       case 'medium': return 'border-purple-300 bg-purple-50';
       case 'low': return 'border-indigo-300 bg-indigo-50';
-      default: return 'border-gray-300 bg-gray-50';
+      default: return 'border-purple-300 bg-purple-50';
     }
   };
 
@@ -171,7 +204,6 @@ const GradSchoolTracker = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
     const startDate = new Date(firstDay);
     startDate.setDate(startDate.getDate() - firstDay.getDay());
     
@@ -186,10 +218,11 @@ const GradSchoolTracker = () => {
 
   const getApplicationsForDate = (date) => {
     const dateStr = date.toISOString().split('T')[0];
-    return applications.filter(app => 
-      app.overallDueDate === dateStr || 
-      app.essayRequirements.some(essay => essay.dueDate === dateStr)
-    );
+    return applications.filter(app => {
+      const hasOverallDue = app.overallDueDate === dateStr;
+      const hasEssayDue = app.essayRequirements?.some(essay => essay.dueDate === dateStr);
+      return hasOverallDue || hasEssayDue;
+    });
   };
 
   const CalendarView = () => {
@@ -279,9 +312,9 @@ const GradSchoolTracker = () => {
                   <td className="px-4 py-3 text-sm text-gray-900 border border-purple-200 font-medium">{app.university}</td>
                   <td className="px-4 py-3 text-sm text-gray-700 border border-purple-200">{app.program}</td>
                   <td className="px-4 py-3 text-sm text-gray-700 border border-purple-200">
-                    {new Date(app.overallDueDate).toLocaleDateString()}
+                    {app.overallDueDate ? new Date(app.overallDueDate).toLocaleDateString() : 'Not set'}
                   </td>
-                  {app.lettersOfRec.map((letter, i) => (
+                  {(app.lettersOfRec || []).map((letter, i) => (
                     <td key={i} className="px-4 py-3 text-sm border border-purple-200">
                       <div className="flex items-center space-x-2">
                         <button
@@ -298,7 +331,7 @@ const GradSchoolTracker = () => {
                   ))}
                   <td className="px-4 py-3 text-sm border border-purple-200">
                     <div className="space-y-1">
-                      {app.essayRequirements.map((essay, i) => (
+                      {(app.essayRequirements || []).map((essay, i) => (
                         <div key={i} className="flex items-center space-x-2">
                           <button
                             onClick={() => updateEssayStatus(app.id, i, 
@@ -307,7 +340,7 @@ const GradSchoolTracker = () => {
                             {getStatusIcon(essay.status)}
                           </button>
                           <span className={`text-xs ${essay.status === 'completed' ? 'line-through text-gray-500' : 'text-gray-700'}`}>
-                            {essay.title.substring(0, 15)}...
+                            {essay.title?.substring(0, 15) || 'Essay'}...
                           </span>
                         </div>
                       ))}
@@ -419,11 +452,11 @@ const GradSchoolTracker = () => {
         ) : (
           <div className="grid gap-6">
             {applications
-              .sort((a, b) => new Date(a.overallDueDate) - new Date(b.overallDueDate))
+              .sort((a, b) => new Date(a.overallDueDate || '9999-12-31') - new Date(b.overallDueDate || '9999-12-31'))
               .map((app) => {
                 const reminders = getReminders(app.overallDueDate);
-                const completedLetters = app.lettersOfRec.filter(letter => letter.status === 'completed').length;
-                const completedEssays = app.essayRequirements.filter(essay => essay.status === 'completed').length;
+                const completedLetters = (app.lettersOfRec || []).filter(letter => letter.status === 'completed').length;
+                const completedEssays = (app.essayRequirements || []).filter(essay => essay.status === 'completed').length;
                 
                 return (
                   <div key={app.id} className={`border-2 rounded-xl p-6 shadow-lg transition-all hover:shadow-xl ${getPriorityColor(app.priority)}`}>
@@ -433,7 +466,7 @@ const GradSchoolTracker = () => {
                         <p className="text-lg text-purple-700 font-medium mb-2">{app.program}</p>
                         <div className="flex flex-wrap items-center gap-4 mt-2">
                           <span className="text-sm text-gray-600 bg-white px-3 py-1 rounded-full">
-                            Overall Due: {new Date(app.overallDueDate).toLocaleDateString()}
+                            Overall Due: {app.overallDueDate ? new Date(app.overallDueDate).toLocaleDateString() : 'Not set'}
                           </span>
                           <span className={`text-sm font-medium capitalize px-3 py-1 rounded-full ${
                             app.priority === 'high' ? 'bg-pink-200 text-pink-800' :
@@ -478,7 +511,7 @@ const GradSchoolTracker = () => {
                           Letters of Recommendation ({completedLetters}/3)
                         </h4>
                         <div className="space-y-3">
-                          {app.lettersOfRec.map((letter, index) => (
+                          {(app.lettersOfRec || []).map((letter, index) => (
                             <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded">
                               <button
                                 onClick={() => updateLetterStatus(app.id, index, 
@@ -498,10 +531,10 @@ const GradSchoolTracker = () => {
                       <div className="bg-white rounded-lg p-4 shadow-sm">
                         <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
                           <BookOpen className="w-4 h-4 mr-2 text-blue-600" />
-                          Essay Requirements ({completedEssays}/{app.essayRequirements.length})
+                          Essay Requirements ({completedEssays}/{(app.essayRequirements || []).length})
                         </h4>
                         <div className="space-y-3">
-                          {app.essayRequirements.map((essay, index) => (
+                          {(app.essayRequirements || []).map((essay, index) => (
                             <div key={index} className="p-3 bg-gray-50 rounded">
                               <div className="flex items-start space-x-3">
                                 <button
@@ -513,7 +546,7 @@ const GradSchoolTracker = () => {
                                 </button>
                                 <div className="flex-grow">
                                   <span className={`text-sm block ${essay.status === 'completed' ? 'line-through text-gray-500' : 'text-gray-700'}`}>
-                                    {essay.title}
+                                    {essay.title || 'Essay requirement'}
                                   </span>
                                   {essay.dueDate && (
                                     <span className="text-xs text-purple-600 mt-1 block">
@@ -562,7 +595,7 @@ const GradSchoolTracker = () => {
               <div className="space-y-6">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-semibold text-purple-800 mb-2">University</label>
+                    <label className="block text-sm font-semibold text-purple-800 mb-2">University *</label>
                     <input
                       type="text"
                       required
@@ -573,7 +606,7 @@ const GradSchoolTracker = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-purple-800 mb-2">Program</label>
+                    <label className="block text-sm font-semibold text-purple-800 mb-2">Program *</label>
                     <input
                       type="text"
                       required
@@ -587,7 +620,7 @@ const GradSchoolTracker = () => {
 
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-semibold text-purple-800 mb-2">Overall Due Date</label>
+                    <label className="block text-sm font-semibold text-purple-800 mb-2">Overall Due Date *</label>
                     <input
                       type="date"
                       required
@@ -603,3 +636,108 @@ const GradSchoolTracker = () => {
                       onChange={(e) => setFormData({...formData, priority: e.target.value})}
                       className="w-full p-3 border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
                     >
+                      <option value="high">High Priority</option>
+                      <option value="medium">Medium Priority</option>
+                      <option value="low">Low Priority</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-purple-50 rounded-lg p-6">
+                  <label className="block text-sm font-semibold text-purple-800 mb-3">Letters of Recommendation</label>
+                  {formData.lettersOfRec.map((letter, index) => (
+                    <div key={index} className="mb-3">
+                      <input
+                        type="text"
+                        placeholder={`Recommender ${index + 1} name (e.g., Dr. Smith, Professor Jones)`}
+                        value={letter.name}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          lettersOfRec: formData.lettersOfRec.map((l, i) => 
+                            i === index ? {...l, name: e.target.value} : l
+                          )
+                        })}
+                        className="w-full p-3 border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-pink-50 rounded-lg p-6">
+                  <label className="block text-sm font-semibold text-purple-800 mb-3">Essay Requirements</label>
+                  {formData.essayRequirements.map((essay, index) => (
+                    <div key={index} className="mb-4 p-4 bg-white rounded-lg border border-pink-200">
+                      <div className="grid md:grid-cols-2 gap-4 mb-3">
+                        <input
+                          type="text"
+                          placeholder="Essay title or requirement"
+                          value={essay.title}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            essayRequirements: formData.essayRequirements.map((req, i) => 
+                              i === index ? {...req, title: e.target.value} : req
+                            )
+                          })}
+                          className="w-full p-3 border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+                        />
+                        <input
+                          type="date"
+                          placeholder="Essay due date (optional)"
+                          value={essay.dueDate}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            essayRequirements: formData.essayRequirements.map((req, i) => 
+                              i === index ? {...req, dueDate: e.target.value} : req
+                            )
+                          })}
+                          className="w-full p-3 border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+                        />
+                      </div>
+                      {formData.essayRequirements.length > 1 && (
+                        <button
+                          onClick={() => setFormData({
+                            ...formData,
+                            essayRequirements: formData.essayRequirements.filter((_, i) => i !== index)
+                          })}
+                          className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setFormData({
+                      ...formData,
+                      essayRequirements: [...formData.essayRequirements, { title: '', dueDate: '', status: 'pending' }]
+                    })}
+                    className="w-full p-3 border-2 border-dashed border-purple-300 text-purple-600 hover:border-purple-400 hover:bg-purple-50 rounded-lg transition-colors font-medium"
+                  >
+                    + Add Another Essay Requirement
+                  </button>
+                </div>
+
+                <div className="flex space-x-4 pt-6">
+                  <button
+                    onClick={handleSubmit}
+                    className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 font-semibold text-lg shadow-lg transition-all transform hover:scale-105"
+                  >
+                    {editingId ? '✨ Update Application' : '🌟 Add Dream School'}
+                  </button>
+                  <button
+                    onClick={resetForm}
+                    className="flex-1 bg-gray-500 text-white py-4 px-6 rounded-lg hover:bg-gray-600 font-semibold text-lg shadow-lg transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default GradSchoolTracker;
